@@ -13,6 +13,21 @@
 
 ## 📖 项目简介
 
+## 🔒 2186748980 自用加固版
+
+此 Fork 面向个人自用。默认策略是尽量减少不必要的第三方依赖：
+
+- 不再默认启用上游默认反代；只有显式设置 `PROXYIP` 或 `ALLOW_DEFAULT_PROXY=1` 才使用反代。
+- KV/Telegram 访问日志默认关闭；只有设置 `ENABLE_LOG=1` 才允许写日志，`OFF_LOG=1` 可强制关闭。
+- 订阅转换 API 默认关闭；只有设置 `ENABLE_SUBAPI=1` 才允许使用配置中的 `SUBAPI`。
+- 优选 IP 列表默认改用 Cloudflare 官方 IPv4 地址段。
+- 管理页面优先尝试 Pages 的 `env.ASSETS` 本地资源，也可以用 `UI_URL` 指定备用页面来源。
+- 上游自动同步 Workflow 已移除，避免后续自动更新覆盖本 Fork 的修改。
+
+> 注意：关闭远程订阅转换后，需要专用格式的客户端请求会先回退到 `mixed` 原始订阅。需要专用格式转换时，请使用你自己控制或明确信任的 SUBAPI，并设置 `ENABLE_SUBAPI=1`。
+
+
+
 **edgetunnel** 是一个基于 CF Workers/Pages 平台的边缘计算隧道解密方案。它能够高效地处理网络流量，并提供强大的管理面板和灵活的节点配置能力。
 
 - 🖥️ **Demo 演示站点**：[https://EDT-Pages.github.io/admin](https://EDT-Pages.github.io/admin)
@@ -120,12 +135,16 @@
 | :--- | :---: | :--- | :--- |
 | **ADMIN** | ✅ | `123456` | 后台管理面板登录密码 |
 | **KEY** | ❌ | `CMLiussss` | 快速订阅路径密钥，访问 `/CMLiussss` 即可快速获取节点 |
+| **ENABLE_SUBAPI** | ❌ | `1`或`true` | 允许使用配置中的订阅转换 API；**默认关闭** |
+| **UI_URL** | ❌ | `https://example.com` | 管理页面备用来源；若 Pages 提供 `env.ASSETS` 则优先使用本地静态资源 |
 | **UUID** | ❌ | `90cd4a77-141a-43c9-991b-08263cfe9c10` | 强制固定UUID，只支持**UUIDv4**标准格式 |
-| **PROXYIP** | ❌ | `proxyip.cmliussss.net:443` | 全局自定义反代 IP  |
+| **PROXYIP** | ❌ | `1.2.3.4:443` | 你自己控制的全局反代 IP；未设置时不再使用上游默认反代 |
+| **ALLOW_DEFAULT_PROXY** | ❌ | `1`或`true` | 明确允许使用上游默认反代；**默认关闭，不建议开启** |
 | **URL** | ❌ | `https://cloudflare-error-page-3th.pages.dev` | 默认主页伪装地址（可填写网页 URL 或 `1101`） |
 | **GO2SOCKS5** | ❌ | `blog.cmliussss.com`,`*.ip111.cn`,`*google.com` | 强制走 SOCKS5 的名单 (`*` 为全局，域名用逗号分隔) |
 | **DEBUG** | ❌ | `1`或`true` | **开发者模式**，默认**关闭**调试日志功能（console.log），设置`1`或`true`则**开启**调试日志功能 |
-| **OFF_LOG** | ❌ | `1`或`true` | 默认**开启**KV日志记录功能，设置`1`或`true`则**关闭**日志记录功能 |
+| **ENABLE_LOG** | ❌ | `1`或`true` | **默认关闭**KV/Telegram日志；设置后才允许写日志（仍受 `OFF_LOG` 控制） |
+| **OFF_LOG** | ❌ | `1`或`true` | 强制关闭日志；即使启用了 `ENABLE_LOG` 也不会记录 |
 | **BEST_SUB** | ❌ | `1`或`true` | 默认**关闭**作为**优选订阅生成器**的功能，设置`1`或`true`则**开启**该功能 |
 | **PRELOAD_RACE_DIAL** | ❌ | `1`或`true` | 默认**关闭**作为**预加载竞速拨号**的功能，设置`1`或`true`则**开启**该功能 |
 | **TCP_CONCURRENT_DIAL**   | ❌ | `2` | **TCP 并发拨号数**，默认值为`2`；设置后不再根据中国移动网络自动降为单路 |
