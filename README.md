@@ -24,7 +24,7 @@
 - 管理页面优先尝试 Pages 的 `env.ASSETS` 本地资源，也可以用 `UI_URL` 指定备用页面来源。
 - 上游自动同步 Workflow 已移除，避免后续自动更新覆盖本 Fork 的修改。
 
-> 注意：关闭远程订阅转换后，需要专用格式的客户端请求会先回退到 `mixed` 原始订阅。需要专用格式转换时，请使用你自己控制或明确信任的 SUBAPI，并设置 `ENABLE_SUBAPI=1`。
+> 注意：关闭远程订阅转换后，Clash/Mihomo 系客户端（含 FlyClash、FlClash、Clash Verge 等）的订阅请求会由 Worker **本地直接生成 Clash YAML**，无需外部 SUBAPI；请求 `/sub?token=xxx`（客户端 UA 自动识别）或显式 `/sub?token=xxx&target=clash` 均可。其余需要专用格式的客户端（singbox/Surge 等）仍回退到 `mixed` 原始订阅，需要专用格式转换时，请使用你自己控制或明确信任的 SUBAPI，并设置 `ENABLE_SUBAPI=1`。
 
 
 

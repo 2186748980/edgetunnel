@@ -362,13 +362,14 @@ export default {
 													? 'loon'
 													: 'mixed';
 
-						const 允许订阅转换 = ['1', 'true'].includes(String(env.ENABLE_SUBAPI || '').toLowerCase());
-						if (!允许订阅转换 && 订阅类型 !== 'mixed') 订阅类型 = 'mixed';
+						const SUBAPI可用 = ['1', 'true'].includes(String(env.ENABLE_SUBAPI || '').toLowerCase()) && String(config_JSON.订阅转换配置.SUBAPI || '').trim() !== '';
+						const 本地生成Clash = 订阅类型 === 'clash' && !SUBAPI可用; // 无外部转换后端时，Clash/Mihomo 订阅由本地直接生成 YAML
+						if (!SUBAPI可用 && !本地生成Clash && 订阅类型 !== 'mixed') 订阅类型 = 'mixed';
 
 						if (!ua.includes('mozilla')) responseHeaders["Content-Disposition"] = `attachment; filename*=utf-8''${encodeURIComponent(config_JSON.优选订阅生成.SUBNAME)}`;
 						const 协议类型 = ((url.searchParams.has('surge') || ua.includes('surge')) && config_JSON.协议类型 !== 'ss') ? 'tro' + 'jan' : config_JSON.协议类型;
 						let 订阅内容 = '';
-						if (订阅类型 === 'mixed') {
+						if (订阅类型 === 'mixed' || 本地生成Clash) { // 本地生成Clash 时复用 mixed 分支生成节点链接，稍后转成 Clash YAML
 							const TLS分片参数 = config_JSON.TLS分片 == 'Shadowrocket' ? `&fragment=${encodeURIComponent('1,40-60,30-50,tlshello')}` : config_JSON.TLS分片 == 'Happ' ? `&fragment=${encodeURIComponent('3,1,tlshello')}` : '';
 							let 完整优选IP = [], 其他节点LINK = '', 反代IP池 = [];
 
@@ -501,6 +502,8 @@ export default {
 									return 当前随机HOST;
 								});
 						}
+
+						if (本地生成Clash) 订阅内容 = 生成Clash订阅配置(订阅内容, config_JSON);
 
 						if (订阅类型 === 'mixed' && (!ua.includes('mozilla') || url.searchParams.has('b64') || url.searchParams.has('base64'))) 订阅内容 = btoa(订阅内容);
 
@@ -5062,6 +5065,180 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON 
 	}
 
 	return processedLines.join('\n');
+}
+
+// 本地生成 Clash/Mihomo 订阅：将 mixed 订阅的节点链接解析为 Clash 代理并输出 YAML（无需外部 SUBAPI）
+function 生成Clash订阅配置(节点链接文本, config_JSON = {}) {
+	const 节点数组 = [];
+	const 已用节点名 = new Set();
+	for (const 原始行 of String(节点链接文本 || '').split('\n')) {
+		const 行 = 原始行.trim();
+		if (!行) continue;
+		let 节点 = null;
+		try { 节点 = 解析订阅链接为Clash代理节点(行, config_JSON); } catch (error) { }
+		if (!节点) continue;
+		const 基础名 = String(节点.name || 节点.server || 'Node');
+		节点.name = 基础名;
+		let 去重序号 = 1;
+		while (已用节点名.has(节点.name)) 节点.name = `${基础名} ${++去重序号}`;
+		已用节点名.add(节点.name);
+		节点数组.push(节点);
+	}
+	const 节点名数组 = 节点数组.map(节点 => JSON.stringify(节点.name));
+	const 配置行 = ['mixed-port: 7890', 'allow-lan: false', 'mode: rule', 'log-level: info', 'ipv6: true', ''];
+	if (节点数组.length > 0) 配置行.push('proxies:', ...节点数组.map(Clash代理节点转YAML));
+	else 配置行.push('# 没有可转换为 Clash 的节点', 'proxies: []');
+	配置行.push('', 'proxy-groups:', '  - name: "PROXY"', '    type: select', '    proxies:');
+	if (节点数组.length > 0) 配置行.push('      - "自动选择"', ...节点名数组.map(名字 => '      - ' + 名字));
+	配置行.push('      - "DIRECT"', '  - name: "自动选择"', '    type: url-test', '    url: "https://www.gstatic.com/generate_204"', '    interval: 300', '    tolerance: 50', '    proxies: ' + (节点名数组.length > 0 ? '[' + 节点名数组.join(', ') + ']' : '["DIRECT"]'));
+	配置行.push('', 'rules:',
+		'  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
+		'  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve',
+		'  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
+		'  - GEOIP,CN,DIRECT',
+		'  - MATCH,PROXY', '');
+	return 配置行.join('\n');
+}
+
+function 解析订阅链接为Clash代理节点(行, config_JSON = {}) {
+	const 锚点索引 = 行.lastIndexOf('#');
+	let 节点名 = '';
+	if (锚点索引 > -1) {
+		try { 节点名 = decodeURIComponent(行.slice(锚点索引 + 1)); } catch (error) { 节点名 = 行.slice(锚点索引 + 1); }
+	}
+	const 无锚点行 = 锚点索引 > -1 ? 行.slice(0, 锚点索引) : 行;
+	const 查询索引 = 无锚点行.indexOf('?');
+	const 查询参数 = {};
+	let 主体 = 无锚点行;
+	if (查询索引 > -1) {
+		主体 = 无锚点行.slice(0, 查询索引);
+		for (const 键值对 of 无锚点行.slice(查询索引 + 1).split('&')) {
+			if (!键值对) continue;
+			const 等号索引 = 键值对.indexOf('=');
+			const 键 = 等号索引 === -1 ? 键值对 : 键值对.slice(0, 等号索引);
+			const 值 = 等号索引 === -1 ? '' : 键值对.slice(等号索引 + 1);
+			try { 查询参数[decodeURIComponent(键)] = decodeURIComponent(值); } catch (error) { 查询参数[键] = 值; }
+		}
+	}
+	const 协议索引 = 主体.indexOf('://');
+	if (协议索引 === -1) return null;
+	const 协议 = 主体.slice(0, 协议索引).toLowerCase();
+	const 地址部分 = 主体.slice(协议索引 + 3);
+	const AT索引 = 地址部分.lastIndexOf('@');
+	if (AT索引 === -1) return null;
+	let 凭据 = 地址部分.slice(0, AT索引);
+	const 主机端口 = 地址部分.slice(AT索引 + 1);
+	let 服务器地址, 服务器端口;
+	const IPv6匹配 = 主机端口.match(/^\[([^\]]+)\](?::(\d+))?$/);
+	if (IPv6匹配) { 服务器地址 = IPv6匹配[1]; 服务器端口 = Number(IPv6匹配[2] || 443); }
+	else {
+		const 冒号索引 = 主机端口.lastIndexOf(':');
+		if (冒号索引 > -1 && 主机端口.slice(冒号索引 + 1)) { 服务器地址 = 主机端口.slice(0, 冒号索引); 服务器端口 = Number(主机端口.slice(冒号索引 + 1)); }
+		else { 服务器地址 = 主机端口; 服务器端口 = 443; }
+	}
+	if (!服务器地址 || !Number.isFinite(服务器端口) || 服务器端口 <= 0 || 服务器端口 > 65535) return null;
+	const 传输类型 = (查询参数.type || 'ws').toLowerCase();
+	const 启用TLS = (查询参数.security || 'tls').toLowerCase() === 'tls';
+	const SNI = 查询参数.sni || 查询参数.host || 查询参数.authority || '';
+	const 指纹 = 查询参数.fp || '';
+	const ALPN数组 = (查询参数.alpn || '').split(',').map(项 => 项.trim()).filter(Boolean);
+	const 节点 = { name: 节点名, server: 服务器地址, port: 服务器端口 };
+	if (Boolean(config_JSON.订阅转换配置 && config_JSON.订阅转换配置.UDP)) 节点.udp = true;
+	if (ALPN数组.length > 0) 节点.alpn = ALPN数组;
+	if (Boolean(config_JSON.跳过证书验证)) 节点['skip-cert-verify'] = true;
+	const 添加WS选项 = (目标节点) => {
+		const ws选项 = {};
+		if (查询参数.path) ws选项.path = 查询参数.path;
+		if (SNI) ws选项.headers = { Host: 查询参数.host || SNI };
+		if (Object.keys(ws选项).length > 0) 目标节点['ws-opts'] = ws选项;
+	};
+	if (协议 === 'vless') {
+		节点.type = 'vless';
+		节点.uuid = 凭据;
+		if (启用TLS) 节点.tls = true;
+		if (SNI) 节点.servername = SNI;
+		if (指纹) 节点['client-fingerprint'] = 指纹;
+		if (传输类型 === 'ws') {
+			节点.network = 'ws';
+			添加WS选项(节点);
+		} else if (传输类型 === 'grpc') {
+			节点.network = 'grpc';
+			节点['grpc-opts'] = { 'grpc-service-name': 查询参数.serviceName || 查询参数.path || SNI || '' };
+		} else return null; // xhttp 等传输方式 mihomo 不支持，跳过
+		return 节点;
+	}
+	if (协议 === 'trojan') {
+		节点.type = 'trojan';
+		节点.password = 凭据;
+		if (SNI) 节点.sni = SNI;
+		if (指纹) 节点['client-fingerprint'] = 指纹;
+		if (传输类型 === 'ws') {
+			节点.network = 'ws';
+			添加WS选项(节点);
+		}
+		return 节点;
+	}
+	if (协议 === 'ss') {
+		let 解码凭据 = 凭据;
+		try {
+			const 标准化 = 凭据.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - 凭据.replace(/-/g, '+').replace(/_/g, '/').length % 4) % 4);
+			const 解码 = atob(标准化);
+			if (解码.includes(':')) 解码凭据 = 解码;
+		} catch (error) { }
+		const 冒号索引 = 解码凭据.indexOf(':');
+		if (冒号索引 === -1) return null;
+		节点.type = 'ss';
+		节点.cipher = 解码凭据.slice(0, 冒号索引);
+		节点.password = 解码凭据.slice(冒号索引 + 1);
+		const 插件值 = 查询参数.plugin || '';
+		if (插件值.startsWith('v2ray-plugin')) {
+			const 插件选项 = {};
+			for (const 段 of 插件值.split(';').slice(1)) {
+				const 等号索引 = 段.indexOf('=');
+				if (等号索引 === -1) 插件选项[段.trim().toLowerCase()] = true;
+				else 插件选项[段.slice(0, 等号索引).trim().toLowerCase()] = 段.slice(等号索引 + 1);
+			}
+			节点.plugin = 'v2ray-plugin';
+			const 插件opts = { mode: 插件选项.mode || 'websocket' };
+			if (插件选项.host) 插件opts.host = 插件选项.host;
+			if (插件选项.path) 插件opts.path = 插件选项.path.replace(/\\([=,])/g, '$1');
+			if (插件选项.tls) 插件opts.tls = true;
+			节点['plugin-opts'] = 插件opts;
+		} else if (插件值) return null; // 仅支持 v2ray-plugin
+		return 节点;
+	}
+	return null;
+}
+
+function ClashYAML标量(值) {
+	if (typeof 值 === 'number' || typeof 值 === 'boolean') return String(值);
+	if (Array.isArray(值)) return '[' + 值.map(项 => JSON.stringify(String(项))).join(', ') + ']';
+	return JSON.stringify(String(值));
+}
+
+function ClashYAML嵌套块(键, 对象, 缩进) {
+	const 前缀 = ' '.repeat(缩进);
+	const 行数组 = [前缀 + 键 + ':'];
+	for (const [子键, 子值] of Object.entries(对象)) {
+		if (子值 === undefined || 子值 === null || 子值 === '') continue;
+		if (typeof 子值 === 'object' && !Array.isArray(子值)) 行数组.push(...ClashYAML嵌套块(子键, 子值, 缩进 + 2));
+		else 行数组.push(前缀 + '  ' + 子键 + ': ' + ClashYAML标量(子值));
+	}
+	return 行数组;
+}
+
+function Clash代理节点转YAML(节点) {
+	const 简单字段 = [], 复杂字段 = [];
+	for (const [键, 值] of Object.entries(节点)) {
+		if (值 === undefined || 值 === null || 值 === '') continue;
+		if (typeof 值 === 'object' && !Array.isArray(值)) 复杂字段.push([键, 值]);
+		else 简单字段.push([键, 值]);
+	}
+	const 行数组 = [];
+	简单字段.forEach(([键, 值], 索引) => 行数组.push((索引 === 0 ? '  - ' : '    ') + 键 + ': ' + ClashYAML标量(值)));
+	if (行数组.length === 0) 行数组.push('  - {}');
+	for (const [键, 值] of 复杂字段) 行数组.push(...ClashYAML嵌套块(键, 值, 4));
+	return 行数组.join('\n');
 }
 
 async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, config_JSON = {}) {
